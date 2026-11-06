@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Parking Simulator</title>
+<style>
+  :root { --bg:#0e1320; --panel:#161d2e; --card:#1d2539; --border:#2a3550; --text:#e9eef8;
+          --muted:#8793ab; --accent:#f5b942; --good:#34c27a; --bad:#ef5b5b; --ev:#3aa0ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font-family:"Segoe UI","SF Pro Display","Helvetica Neue",Inter,"DejaVu Sans",Arial,sans-serif; }
+  .app { max-width:1260px; margin:0 auto; padding:14px 18px 12px; }
+  header { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; }
+  h1 { font-size:26px; margin:0; }
+  .sub { color:var(--muted); font-size:12px; margin-top:2px; }
+  .hright { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .pill { background:var(--card); padding:7px 14px; border-radius:4px; font-weight:700; font-size:16px; }
+  .badge { padding:7px 10px; font-weight:700; font-size:12px; border-radius:4px; }
+  .layout { display:flex; flex-wrap:wrap; gap:18px; align-items:flex-start; }
+  .left { flex:1 1 640px; min-width:0; }
+  .right { flex:0 0 350px; max-width:100%; }
+  canvas { display:block; }
+  #lot { width:100%; height:auto; background:var(--panel); border:1px solid var(--border); cursor:pointer; }
+  .ctrl { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:10px 0 8px; }
+  .btn { background:var(--card); color:var(--text); border:0; padding:8px 14px; font:inherit; font-size:12px;
+         font-weight:700; cursor:pointer; border-radius:4px; transition:filter .15s; }
+  .btn:hover { filter:brightness(1.2); }
+  .btn.start { background:var(--good); color:#06240f; font-size:13px; padding:8px 18px; }
+  .btn.bad { background:var(--bad); color:#fff; }
+  .speed { display:flex; align-items:center; gap:6px; color:var(--muted); font-size:12px; margin-left:16px; }
+  .speed b { color:var(--text); width:34px; }
+  input[type=range] { accent-color:var(--accent); width:150px; }
+  .lbl { color:var(--muted); font-size:10.5px; font-weight:700; letter-spacing:.5px; margin:8px 0 3px; }
+  #log { background:var(--card); border:1px solid var(--border); height:125px; overflow:hidden; padding:6px 10px;
+         font:12px Consolas,Menlo,"DejaVu Sans Mono","Courier New",monospace; white-space:pre; }
+  #log .in{color:var(--good)} #log .out{color:var(--accent)} #log .full{color:var(--bad)}
+  .cards { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .stat { background:var(--card); display:flex; }
+  .stat i { width:4px; display:block; }
+  .stat div { padding:6px 10px; }
+  .stat small { color:var(--muted); font-size:10.5px; font-weight:700; display:block; }
+  .stat span { font-size:24px; font-weight:700; }
+  .ins { background:var(--card); display:grid; grid-template-columns:repeat(3,1fr); text-align:center; padding:6px 0; margin-top:6px; }
+  .ins small { color:var(--muted); font-size:10.5px; font-weight:700; display:block; }
+  .ins span { font-size:15px; font-weight:700; }
+  .detail { background:var(--card); padding:8px 12px; }
+  .detail h3 { margin:0; font-size:14px; }
+  .detail p { margin:2px 0 6px; color:var(--muted); font-size:12px; white-space:pre-line; min-height:64px; }
+  .parkrow { display:flex; align-items:center; gap:6px; margin-top:10px; }
+  .parkrow .lbl { margin:0 4px 0 0; }
+  .parkrow .export { margin-left:auto; }
+  footer { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; margin-top:10px; font-size:12px; }
+  #toast { color:var(--accent); font-weight:700; }
+  .keys { color:var(--muted); font-size:11px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div>
+      <h1>Smart Parking Simulator</h1>
+      <div class="sub" id="subtitle"></div>
+    </div>
+    <div class="hright">
+      <span class="badge" id="badge"></span>
+      <canvas id="sun" width="30" height="30"></canvas>
+      <span class="pill" id="clock"></span>
+      <button class="btn" id="btnTheme">Light</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <div class="left">
+      <canvas id="lot"></canvas>
+      <div class="ctrl">
+        <button class="btn start" id="btnStart">▶  Start</button>
+        <button class="btn" id="btnStep">Step +1m</button>
+        <button class="btn" id="btnHour">Skip +1h</button>
+        <button class="btn" id="btnReset">Reset</button>
+        <div class="speed">Speed <input type="range" id="speed" min="1" max="60" value="10"><b id="speedLbl">10x</b></div>
+      </div>
+      <div class="lbl">EVENT LOG</div>
+      <div id="log"></div>
+    </div>
+
+    <div class="right">
+      <div class="cards" id="cards"></div>
+      <canvas id="gauge"></canvas>
+      <div class="lbl">OCCUPANCY  •  LAST 2 HOURS</div>
+      <canvas id="chart" style="background:var(--card)"></canvas>
+      <canvas id="mix" style="margin-top:8px"></canvas>
+      <div class="ins">
+        <div><small>PEAK</small><span id="insPeak">-</span></div>
+        <div><small>AVG STAY</small><span id="insAvg">-</span></div>
+        <div><small>SERVED</small><span id="insServed">-</span></div>
+      </div>
+      <div class="lbl">SELECTED SLOT</div>
+      <div class="detail">
+        <h3 id="detTitle"></h3>
+        <p id="detBody"></p>
+        <button class="btn bad" id="btnForce">Force exit</button>
+      </div>
+      <div class="parkrow">
+        <span class="lbl">PARK:</span>
+        <button class="btn" data-kind="Car" style="color:#2a9df4">+ Car</button>
+        <button class="btn" data-kind="Bike" style="color:#f5b942">+ Bike</button>
+        <button class="btn" data-kind="EV" style="color:#1ec8a5">+ EV</button>
+        <button class="btn export" id="btnExport">Export CSV</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <span id="toast">Press Space or click Start</span>
+    <span class="keys">Space start/pause  •  S step  •  H +1h  •  R reset  •  T theme  •  click a slot</span>
+  </footer>
+</div>
+
+<script>
+"use strict";
+/* ======================= SETTINGS ======================= */
+const ROWS = 4, COLS = 10, EV_SLOTS = 6, START_HOUR = 6, HISTORY_LEN = 120;
+const RATE = { Car: 20, Bike: 10, EV: 30 };       // Rupees per hour
+
+const DARK  = { bg:"#0e1320", panel:"#161d2e", card:"#1d2539", border:"#2a3550", text:"#e9eef8", muted:"#8793ab",
+                accent:"#f5b942", good:"#34c27a", bad:"#ef5b5b", ev:"#3aa0ff", glass:"#0b1020", road:"#10162a", lane:"#3a4764" };
+const LIGHT = { bg:"#eceff6", panel:"#ffffff", card:"#f3f5fa", border:"#d3d9e6", text:"#1c2333", muted:"#6a768d",
+                accent:"#d98308", good:"#1f9d5c", bad:"#d64545", ev:"#1d7fd6", glass:"#27324a", road:"#dde2ed", lane:"#a7b1c6" };
+const CAR_COLORS  = ["#e84a5f","#2a9df4","#f5b942","#7bd389","#a77bf3","#f78fb3","#dfe3ea","#ff8c42"];
+const BIKE_COLORS = ["#ff6b35","#4ecdc4","#c3a6ff","#ffd166","#ef476f"];
+const EV_COLORS   = ["#1ec8a5","#3aa0ff","#e6edf5"];
+const KIND_COLORS = { Car:"#2a9df4", Bike:"#f5b942", EV:"#1ec8a5" };
+
+const LOT_PAD = 8, CELL_W = 72, CELL_H = 74, GAP = 8, AISLE = 46;
+const LOT_W = LOT_PAD*2 + COLS*CELL_W + (COLS-1)*GAP;
+const LOT_H = LOT_PAD*2 + ROWS*CELL_H + (ROWS-1)*GAP + AISLE;
+const RIGHT_W = 350;
+
+/* ======================= HELPERS ======================= */
+const pad2 = n => String(n).padStart(2, "0");
+const hhmm = m => { m = ((m % 1440) + 1440) % 1440; return pad2(Math.floor(m/60)) + ":" + pad2(m % 60); };
+const rnd = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
+
+const hex2 = n => n.toString(16).padStart(2, "0");
+function mixHex(c1, c2, t) {
+  const p = c => [1,3,5].map(i => parseInt(c.slice(i, i+2), 16));
+  const a = p(c1), b = p(c2);
+  return "#" + a.map((v, i) => hex2(Math.round(v*(1-t) + b[i]*t))).join("");
+}
+
+function rrect(ctx, x1, y1, x2, y2, r, fill, stroke, lw) {
+  r = Math.min(r, (x2-x1)/2, (y2-y1)/2);
+  ctx.beginPath();
+  ctx.moveTo(x1+r, y1); ctx.lineTo(x2-r, y1); ctx.arcTo(x2, y1, x2, y1+r, r);
+  ctx.lineTo(x2, y2-r); ctx.arcTo(x2, y2, x2-r, y2, r);
+  ctx.lineTo(x1+r, y2); ctx.arcTo(x1, y2, x1, y2-r, r);
+  ctx.lineTo(x1, y1+r); ctx.arcTo(x1, y1, x1+r, y1, r); ctx.closePath();
+  if (fill)   { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw || 1; ctx.stroke(); }
+}
+function bolt(ctx, cx, cy, s, fill) {
+  const pts = [[0.15,-1],[-0.6,0.15],[-0.05,0.15],[-0.2,1],[0.6,-0.25],[0.05,-0.25]];
+  ctx.beginPath();
+  pts.forEach(([px, py], i) => i ? ctx.lineTo(cx + px*s, cy + py*s) : ctx.moveTo(cx + px*s, cy + py*s));
+  ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+}
+function text(ctx, str, x, y, color, size, bold, align) {
+  ctx.font = (bold ? "bold " : "") + size + 'px "Segoe UI",Helvetica,Arial,sans-serif';
+  ctx.fillStyle = color; ctx.textAlign = align || "left"; ctx.textBaseline = "middle";
+  ctx.fillText(str, x, y);
+}
+function setupCanvas(cv, w, h) {            // sharp on retina screens
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return ctx;
+}
+
+/* ======================= ENGINE ======================= */
+function randomPlate() {
+  const A = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  return "MP" + pad2(rnd(1, 20)) + A[rnd(0,25)] + A[rnd(0,25)] + rnd(1000, 9999);
+}
+
+class ParkingLot {
+  constructor() {
+    this.rows = ROWS; this.cols = COLS; this.evSlots = EV_SLOTS;
+    this.slots = Array.from({ length: ROWS*COLS }, (_, i) => ({ sid:i, kind: i < EV_SLOTS ? "EV" : "Regular", vehicle:null }));
+    this.clock = START_HOUR * 60;
+    this.revenue = 0; this.served = 0; this.rejected = 0; this.peak = 0; this.stayTotal = 0;
+    this.history = []; this.records = [];
+  }
+  get total()   { return this.slots.length; }
+  get occupied(){ return this.slots.filter(s => s.vehicle).length; }
+  get free()    { return this.total - this.occupied; }
+  get pct()     { return 100 * this.occupied / this.total; }
+  get day()     { return Math.floor(this.clock / 1440) + 1; }
+  get hour()    { return Math.floor((this.clock % 1440) / 60); }
+  get timeStr() { return hhmm(this.clock); }
+  get avgStay() { return this.served ? this.stayTotal / this.served : 0; }
+
+  countsNow() {
+    const c = { Car:0, Bike:0, EV:0 };
+    this.slots.forEach(s => { if (s.vehicle) c[s.vehicle.kind]++; });
+    return c;
+  }
+  findSlot(v) {
+    const ev  = this.slots.filter(s => !s.vehicle && s.kind === "EV");
+    const reg = this.slots.filter(s => !s.vehicle && s.kind === "Regular");
+    const opts = v.kind === "EV" ? ev.concat(reg) : reg;
+    return opts[0] || null;
+  }
+  park(v) {
+    const slot = this.findSlot(v);
+    if (!slot) { this.rejected++; return null; }
+    slot.vehicle = v; return slot;
+  }
+  feeFor(v, minutes) {
+    if (minutes === undefined) minutes = v.stay;
+    return Math.max(1, Math.ceil(minutes / 60)) * RATE[v.kind];
+  }
+  spawn(kind) {
+    if (!kind) { const r = Math.random()*100; kind = r < 55 ? "Car" : (r < 85 ? "Bike" : "EV"); }
+    const v = { plate: randomPlate(), kind, arrived: this.clock, stay: rnd(20, 240) };
+    const slot = this.park(v);
+    if (slot) return { kind:"in", text:`${this.timeStr}  IN    ${v.plate}  ${kind.padEnd(4)} -> P${slot.sid+1}`, sid:slot.sid, vehicle:v };
+    return { kind:"full", text:`${this.timeStr}  FULL  ${v.plate}  turned away`, sid:-1, vehicle:v };
+  }
+  leave(slot, forced) {
+    const v = slot.vehicle;
+    const minutes = Math.max(1, this.clock - v.arrived);
+    const fee = this.feeFor(v, minutes);
+    this.revenue += fee; this.served++; this.stayTotal += minutes;
+    slot.vehicle = null;
+    return { kind:"out", text:`${this.timeStr}  OUT   ${v.plate}  paid Rs ${fee}${forced ? " (forced)" : ""}`, sid:slot.sid, vehicle:v };
+  }
+  arrivalRate() {
+    const h = this.hour;
+    if ((h >= 9 && h < 11) || (h >= 17 && h < 20)) return 0.30;
+    if (h >= 11 && h < 17) return 0.18;
+    if ((h >= 6 && h < 9) || (h >= 20 && h < 22)) return 0.12;
+    return 0.02;
+  }
+  trafficLabel() {
+    const h = this.hour;
+    if ((h >= 9 && h < 11) || (h >= 17 && h < 20)) return ["RUSH HOUR", "hot"];
+    if (h >= 11 && h < 17) return ["BUSY DAYTIME", "ok"];
+    if ((h >= 6 && h < 9) || (h >= 20 && h < 22)) return ["LIGHT TRAFFIC", "calm"];
+    return ["NIGHT - QUIET", "calm"];
+  }
+  step() {
+    const events = [];
+    this.clock++;
+    for (const slot of this.slots) {
+      const v = slot.vehicle;
+      if (v && this.clock - v.arrived >= v.stay) events.push(this.leave(slot, false));
+    }
+    const p = this.arrivalRate();
+    for (let i = 0; i < 2; i++) if (Math.random() < p / 2) events.push(this.spawn());
+    this.history.push(this.pct);
+    if (this.history.length > HISTORY_LEN) this.history.shift();
+    this.peak = Math.max(this.peak, this.pct);
+    this.records.push([this.day, this.timeStr, this.occupied, this.free, this.rejected, this.served, this.revenue]);
+    return events;
+  }
+  csv() {
+    const head = ["day","time","occupied","free","turned_away_total","served_total","revenue_total_rs"];
+    return [head].concat(this.records).map(r => r.join(",")).join("\r\n");
+  }
+}
+
+/* ======================= APP / UI ======================= */
+const $ = id => document.getElementById(id);
+const lotCv = $("lot"), lotCtx = setupCanvas(lotCv, LOT_W, LOT_H);
+lotCv.style.maxWidth = LOT_W + "px";
+const gaugeCtx = setupCanvas($("gauge"), RIGHT_W, 38);
+const chartCtx = setupCanvas($("chart"), RIGHT_W, 112);
+const mixCtx   = setupCanvas($("mix"),   RIGHT_W, 52);
+[ "gauge", "chart", "mix" ].forEach(id => { $(id).style.width = RIGHT_W + "px"; $(id).style.maxWidth = "100%"; });
+$("gauge").style.marginTop = "8px";
+const sunCtx = setupCanvas($("sun"), 30, 30);
+$("sun").style.width = "30px"; $("sun").style.height = "30px";
+
+let lot = new ParkingLot();
+let dark = true, T = DARK;
+let running = false, timer = null, selected = null;
+let glow = {}, anims = [], logBuf = [], toastTimer = null, animRaf = null;
+
+// geometry
+const yOf = r => LOT_PAD + r*(CELL_H + GAP) + (r >= 2 ? AISLE : 0);
+const geom = [];
+for (let sid = 0; sid < ROWS*COLS; sid++) {
+  const r = Math.floor(sid / COLS), c = sid % COLS;
+  geom.push([LOT_PAD + c*(CELL_W + GAP), yOf(r)]);
+}
+const aTop = yOf(1) + CELL_H + 4, aBot = yOf(2) - 4, aisleCy = (aTop + aBot) / 2;
+
+$("subtitle").textContent = `Live availability  •  ${lot.total} slots  •  ${lot.evSlots} EV chargers`;
+
+// stat cards
+const statDefs = [["free","FREE SLOTS","--good"],["occ","OCCUPIED","--bad"],["rev","REVENUE","--accent"],["rej","TURNED AWAY","--muted"]];
+$("cards").innerHTML = statDefs.map(([k, t, c]) =>
+  `<div class="stat"><i style="background:var(${c})"></i><div><small>${t}</small><span id="st_${k}">0</span></div></div>`).join("");
+
+function applyTheme() {
+  T = dark ? DARK : LIGHT;
+  const r = document.documentElement.style;
+  ["bg","panel","card","border","text","muted","accent","good","bad","ev"].forEach(k => r.setProperty("--" + k, T[k]));
+  $("btnTheme").textContent = dark ? "Light" : "Dark";
+  headSig = null;
+}
+
+function toast(msg, ms) {
+  $("toast").textContent = msg;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $("toast").textContent = "", ms || 4000);
+}
+
+/* ---------- drawing ---------- */
+function vehicleColor(v) {
+  let h = 0; for (const ch of v.plate) h += ch.charCodeAt(0);
+  const pal = { Car:CAR_COLORS, Bike:BIKE_COLORS, EV:EV_COLORS }[v.kind];
+  return pal[h % pal.length];
+}
+
+function drawVehicle(ctx, v, cx, cy) {
+  const col = vehicleColor(v), edge = mixHex(col, "#000000", 0.35), dark_ = "#0d111b", glass = T.glass;
+  if (v.kind === "Bike") {
+    const bh = 42;
+    rrect(ctx, cx-3, cy-bh/2, cx+3, cy-bh/2+13, 3, dark_);
+    rrect(ctx, cx-3, cy+bh/2-13, cx+3, cy+bh/2, 3, dark_);
+    rrect(ctx, cx-4, cy-bh/2+8, cx+4, cy+bh/2-8, 4, col, edge);
+    ctx.strokeStyle = dark_; ctx.lineWidth = 3; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(cx-12, cy-bh/2+13); ctx.lineTo(cx+12, cy-bh/2+13); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(cx, cy+2, 6, 7, 0, 0, Math.PI*2);
+    ctx.fillStyle = mixHex(col, "#ffffff", 0.45); ctx.fill(); ctx.strokeStyle = edge; ctx.lineWidth = 1; ctx.stroke();
+    return;
+  }
+  const bw = 36, bh = 46, x1 = cx-bw/2, x2 = cx+bw/2, y1 = cy-bh/2, y2 = cy+bh/2;
+  for (const wx of [x1-3, x2-2]) {
+    rrect(ctx, wx, y1+6, wx+5, y1+16, 2, dark_);
+    rrect(ctx, wx, y2-16, wx+5, y2-6, 2, dark_);
+  }
+  rrect(ctx, x1, y1, x2, y2, 10, col, edge);
+  rrect(ctx, x1+5, y1+10, x2-5, y1+19, 3, glass);
+  rrect(ctx, x1+5, y1+19, x2-5, y2-17, 2, mixHex(col, "#000000", 0.14));
+  rrect(ctx, x1+6, y2-17, x2-6, y2-9, 3, glass);
+  ctx.fillStyle = "#fff3b0";
+  for (const hx of [x1+3, x2-10]) { ctx.beginPath(); ctx.ellipse(hx+3.5, y1+4, 3.5, 2, 0, 0, Math.PI*2); ctx.fill(); }
+  ctx.fillStyle = "#ff4d4d";
+  for (const hx of [x1+3, x2-9]) ctx.fillRect(hx, y2-4, 6, 2);
+  if (v.kind === "EV") bolt(ctx, cx, (y1+19+y2-17)/2, 5.5, "#ffffff");
+}
+
+function drawSlot(ctx, sid) {
+  const slot = lot.slots[sid], v = slot.vehicle, [x, y] = geom[sid];
+  const cx = x + CELL_W/2, cy = y + CELL_H/2 + 1;
+  const base = v ? T.bad : (slot.kind === "EV" ? T.ev : T.good);
+  const fill = mixHex(base, T.panel, 0.90);
+  let outline = mixHex(base, T.panel, 0.55), width = 1;
+  if (sid in glow) { outline = T.accent; width = 2; }
+  if (sid === selected) { outline = T.text; width = 2; }
+  rrect(ctx, x, y, x + CELL_W, y + CELL_H, 9, fill, outline, width);
+  text(ctx, "P" + (sid+1), x + 6, y + 10, T.muted, 10, true);
+  if (!v) {
+    if (slot.kind === "EV") {
+      bolt(ctx, cx, cy - 3, 11, T.ev);
+      text(ctx, "EV", cx, y + CELL_H - 10, T.ev, 10, true, "center");
+    } else {
+      text(ctx, "free", cx, cy, mixHex(T.good, T.panel, 0.35), 11, false, "center");
+    }
+  } else {
+    drawVehicle(ctx, v, cx, cy - 4);
+    text(ctx, v.plate.slice(-6), cx, y + CELL_H - 8, T.muted, 10, false, "center");
+  }
+}
+
+function drawLot() {
+  const ctx = lotCtx;
+  ctx.clearRect(0, 0, LOT_W, LOT_H);
+  ctx.fillStyle = T.panel; ctx.fillRect(0, 0, LOT_W, LOT_H);
+  // road
+  rrect(ctx, 4, aTop, LOT_W-4, aBot, 10, T.road);
+  ctx.strokeStyle = T.lane; ctx.lineWidth = 2; ctx.setLineDash([10, 8]);
+  ctx.beginPath(); ctx.moveTo(90, aisleCy); ctx.lineTo(LOT_W-90, aisleCy); ctx.stroke(); ctx.setLineDash([]);
+  // entry / exit
+  [[14, "ENTRY", T.good], [LOT_W-74, "EXIT", T.bad]].forEach(([x, label, col]) => {
+    ctx.fillStyle = col; ctx.beginPath();
+    ctx.moveTo(x, aisleCy-6); ctx.lineTo(x+12, aisleCy-6); ctx.lineTo(x+12, aisleCy-11); ctx.lineTo(x+22, aisleCy);
+    ctx.lineTo(x+12, aisleCy+11); ctx.lineTo(x+12, aisleCy+6); ctx.lineTo(x, aisleCy+6); ctx.closePath(); ctx.fill();
+    text(ctx, label, x + 28, aisleCy, col, 11, true);
+  });
+  // slots
+  for (let sid = 0; sid < lot.slots.length; sid++) drawSlot(ctx, sid);
+  // arrival animations
+  const now = performance.now();
+  anims = anims.filter(a => now - a.t0 < a.dur);
+  anims.forEach(a => {
+    const k = (now - a.t0) / a.dur, x0 = 37, x1 = geom[a.sid][0] + CELL_W/2, cx = x0 + (x1 - x0) * k;
+    const col = vehicleColor(a.v);
+    rrect(ctx, cx-15, aisleCy-8, cx+15, aisleCy+8, 6, col, mixHex(col, "#000000", 0.35));
+    ctx.fillStyle = T.glass; ctx.fillRect(cx+1, aisleCy-5, 8, 10);
+  });
+  // full banner
+  if (lot.free === 0) {
+    const cx = LOT_W/2;
+    rrect(ctx, cx-78, aisleCy-13, cx+78, aisleCy+13, 8, T.bad);
+    text(ctx, "PARKING FULL", cx, aisleCy, "#ffffff", 13, true, "center");
+  }
+}
+
+function animLoop() {
+  drawLot();
+  animRaf = anims.length ? requestAnimationFrame(animLoop) : null;
+}
+function startArrival(sid, v) {
+  if (!v || anims.length >= 3 || +$("speed").value > 12) return;
+  anims.push({ sid, v, t0: performance.now(), dur: 290 });
+  if (!animRaf) animRaf = requestAnimationFrame(animLoop);
+}
+
+function drawGauge() {
+  const c = gaugeCtx; c.clearRect(0, 0, RIGHT_W, 38);
+  const pct = lot.pct, col = pct < 60 ? T.good : (pct < 85 ? T.accent : T.bad);
+  text(c, "OCCUPANCY", 0, 8, T.muted, 11, true);
+  text(c, `${pct.toFixed(0)}%  •  ${lot.free} free`, RIGHT_W, 8, col, 13, true, "right");
+  rrect(c, 0, 20, RIGHT_W, 34, 7, T.card);
+  if (pct > 0) rrect(c, 0, 20, Math.max(14, RIGHT_W * pct / 100), 34, 7, col);
+}
+
+function drawChart() {
+  const c = chartCtx, w = RIGHT_W, h = 112; c.clearRect(0, 0, w, h);
+  const x0 = 34, x1 = w - 10, y0 = 8, y1 = h - 18;
+  [0, 50, 100].forEach(p => {
+    const y = y1 - (y1 - y0) * p / 100;
+    c.strokeStyle = T.border; c.lineWidth = 1; c.beginPath(); c.moveTo(x0, y); c.lineTo(x1, y); c.stroke();
+    text(c, p + "%", x0 - 6, y, T.muted, 10, false, "right");
+  });
+  text(c, "-2h", x0, h - 8, T.muted, 10);
+  text(c, "now", x1, h - 8, T.muted, 10, false, "right");
+  const data = lot.history;
+  if (data.length < 2) { text(c, "Press Start...", (x0+x1)/2, (y0+y1)/2, T.muted, 12, false, "center"); return; }
+  const step = (x1 - x0) / (HISTORY_LEN - 1);
+  const pts = data.map((val, i) => [x0 + (i + HISTORY_LEN - data.length) * step, y1 - (y1 - y0) * val / 100]);
+  c.beginPath(); pts.forEach(([x, y], i) => i ? c.lineTo(x, y) : c.moveTo(x, y));
+  const area = new Path2D();
+  pts.forEach(([x, y], i) => i ? area.lineTo(x, y) : area.moveTo(x, y));
+  area.lineTo(pts[pts.length-1][0], y1); area.lineTo(pts[0][0], y1); area.closePath();
+  c.fillStyle = mixHex(T.accent, T.card, 0.78); c.fill(area);
+  c.strokeStyle = T.accent; c.lineWidth = 2; c.stroke();
+  const [lx, ly] = pts[pts.length-1];
+  c.beginPath(); c.arc(lx, ly, 3, 0, Math.PI*2); c.fillStyle = T.accent; c.fill();
+  c.strokeStyle = T.card; c.lineWidth = 1; c.stroke();
+}
+
+function drawMix() {
+  const c = mixCtx; c.clearRect(0, 0, RIGHT_W, 52);
+  const counts = lot.countsNow();
+  text(c, "VEHICLES NOW", 0, 8, T.muted, 11, true);
+  rrect(c, 0, 18, RIGHT_W, 30, 6, T.card);
+  let x = 0;
+  ["Car","Bike","EV"].forEach(k => {
+    const seg = RIGHT_W * counts[k] / lot.total;
+    if (seg > 0) { c.fillStyle = KIND_COLORS[k]; c.fillRect(x, 18, seg, 12); x += seg; }
+  });
+  let lx = 0;
+  ["Car","Bike","EV"].forEach(k => {
+    c.fillStyle = KIND_COLORS[k]; c.fillRect(lx, 40, 8, 8);
+    text(c, `${k} ${counts[k]}`, lx + 13, 44, T.text, 11);
+    lx += 78;
+  });
+  const evUsed = lot.slots.slice(0, lot.evSlots).filter(s => s.vehicle).length;
+  text(c, `EV chargers ${evUsed}/${lot.evSlots}`, RIGHT_W, 44, T.muted, 11, false, "right");
+}
+
+function drawSun(night) {
+  const c = sunCtx; c.clearRect(0, 0, 30, 30);
+  if (night) {
+    c.fillStyle = "#dfe6f5"; c.beginPath(); c.arc(15, 15, 9, 0, Math.PI*2); c.fill();
+    c.fillStyle = T.bg; c.beginPath(); c.arc(20, 12, 9, 0, Math.PI*2); c.fill();
+  } else {
+    c.fillStyle = T.accent; c.beginPath(); c.arc(15, 15, 6, 0, Math.PI*2); c.fill();
+    c.strokeStyle = T.accent; c.lineWidth = 2;
+    for (let k = 0; k < 8; k++) {
+      const a = k * Math.PI / 4;
+      c.beginPath(); c.moveTo(15 + 9*Math.cos(a), 15 + 9*Math.sin(a)); c.lineTo(15 + 13*Math.cos(a), 15 + 13*Math.sin(a)); c.stroke();
+    }
+  }
+}
+
+let headSig = null;
+function updateDetails() {
+  if (selected === null) {
+    $("detTitle").textContent = "No slot selected";
+    $("detBody").textContent = "Click any slot in the lot.\nAn occupied slot will show the full vehicle details.";
+    return;
+  }
+  const slot = lot.slots[selected];
+  $("detTitle").textContent = `P${slot.sid+1}  •  ${slot.kind === "EV" ? "EV charging slot" : "Regular slot"}`;
+  const v = slot.vehicle;
+  if (!v) { $("detBody").textContent = "This slot is free right now.\nUse '+ Car / + Bike / + EV' below to park a vehicle here."; return; }
+  const parked = lot.clock - v.arrived;
+  $("detBody").textContent =
+    `${v.kind}  ${v.plate}\nArrived ${hhmm(v.arrived)}  •  parked ${parked} min\n` +
+    `Leaves in ~${Math.max(0, v.stay - parked)} min\nFee so far: Rs ${lot.feeFor(v, Math.max(1, parked))}`;
+}
+
+function refresh() {
+  $("clock").textContent = `Day ${lot.day}  •  ${lot.timeStr}`;
+  const [label, level] = lot.trafficLabel();
+  const night = !(lot.hour >= 6 && lot.hour < 18);
+  if (headSig !== label + night) {
+    headSig = label + night;
+    const col = { hot:T.accent, ok:T.good, calm:T.muted }[level];
+    const b = $("badge"); b.textContent = label; b.style.color = col; b.style.background = mixHex(col, T.bg, 0.82);
+    drawSun(night);
+  }
+  drawLot();
+  $("st_free").textContent = lot.free;
+  $("st_occ").textContent = lot.occupied;
+  $("st_rev").textContent = "Rs " + lot.revenue;
+  $("st_rej").textContent = lot.rejected;
+  $("insPeak").textContent = lot.peak.toFixed(0) + "%";
+  $("insAvg").textContent = lot.served ? lot.avgStay.toFixed(0) + " min" : "-";
+  $("insServed").textContent = lot.served;
+  drawGauge(); drawChart(); drawMix(); updateDetails();
+}
+
+/* ---------- log ---------- */
+function renderLog() {
+  $("log").innerHTML = logBuf.slice().reverse().slice(0, 7)
+    .map(e => `<div class="${e.kind}">${e.text.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</div>`).join("");
+}
+function logAdd(kind, text_) {
+  logBuf.push({ kind, text: text_ });
+  if (logBuf.length > 60) logBuf.shift();
+  renderLog();
+}
+
+/* ---------- actions ---------- */
+function handleEvent(ev, animate) {
+  logAdd(ev.kind, ev.text);
+  if (ev.kind === "in") { glow[ev.sid] = 8; if (animate) startArrival(ev.sid, ev.vehicle); }
+}
+function advance(n) {
+  for (let i = 0; i < n; i++) {
+    const events = lot.step();
+    const g = {}; for (const k in glow) if (glow[k] > 1) g[k] = glow[k] - 1; glow = g;
+    events.forEach(ev => handleEvent(ev, n === 1));
+  }
+  refresh();
+}
+function loop() {
+  if (!running) return;
+  advance(1);
+  const delay = Math.max(16, Math.floor(1000 / Math.max(1, +$("speed").value)));
+  timer = setTimeout(loop, delay);
+}
+function toggle() {
+  running = !running;
+  if (running) { $("btnStart").textContent = "❚❚  Pause"; loop(); }
+  else { $("btnStart").textContent = "▶  Start"; clearTimeout(timer); timer = null; }
+}
+function reset() {
+  if (running) toggle();
+  lot = new ParkingLot(); glow = {}; selected = null; logBuf = []; anims = [];
+  renderLog(); refresh(); toast("Simulation has been reset");
+}
+function toggleTheme() { dark = !dark; applyTheme(); refresh(); }
+function manual(kind) {
+  const ev = lot.spawn(kind);
+  handleEvent(ev, true);
+  if (ev.kind === "full") toast("Parking is full! Vehicle turned away");
+  refresh();
+}
+function forceExit() {
+  if (selected === null) { toast("First click on an occupied slot"); return; }
+  const slot = lot.slots[selected];
+  if (!slot.vehicle) { toast(`P${slot.sid+1} is already free`); return; }
+  handleEvent(lot.leave(slot, true), false);
+  toast(`P${slot.sid+1} has been freed`);
+  refresh();
+}
+function exportCsv() {
+  if (!lot.records.length) { toast("Run the simulation first, then export"); return; }
+  const blob = new Blob([lot.csv()], { type:"text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "parking_report.csv";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  toast("Saved: parking_report.csv", 7000);
+}
+
+/* ---------- events ---------- */
+$("btnStart").onclick = toggle;
+$("btnStep").onclick  = () => advance(1);
+$("btnHour").onclick  = () => advance(60);
+$("btnReset").onclick = reset;
+$("btnTheme").onclick = toggleTheme;
+$("btnForce").onclick = forceExit;
+$("btnExport").onclick = exportCsv;
+document.querySelectorAll("[data-kind]").forEach(b => b.onclick = () => manual(b.dataset.kind));
+$("speed").oninput = e => $("speedLbl").textContent = e.target.value + "x";
+lotCv.addEventListener("click", e => {
+  const r = lotCv.getBoundingClientRect();
+  const x = (e.clientX - r.left) * LOT_W / r.width, y = (e.clientY - r.top) * LOT_H / r.height;
+  for (let sid = 0; sid < geom.length; sid++) {
+    const [gx, gy] = geom[sid];
+    if (x >= gx && x <= gx + CELL_W && y >= gy && y <= gy + CELL_H) {
+      selected = selected === sid ? null : sid; refresh(); return;
+    }
+  }
+});
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" && e.code !== "Space") return;
+  const k = e.key.toLowerCase();
+  if (e.code === "Space") { e.preventDefault(); toggle(); }
+  else if (k === "s") advance(1);
+  else if (k === "h") advance(60);
+  else if (k === "r") reset();
+  else if (k === "t") toggleTheme();
+});
+
+applyTheme();
+refresh();
+</script>
+</body>
+</html>
